@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -23,6 +24,8 @@ import androidx.navigation.compose.rememberNavController
 import app.workspace.AppContainer
 import app.workspace.ui.editor.EditorScreen
 import app.workspace.ui.home.HomeScreen
+import app.workspace.ui.search.SearchScreen
+import app.workspace.ui.trash.TrashScreen
 import app.workspace.ui.theme.AppTheme
 import app.workspace.ui.theme.Dim
 import app.workspace.ui.theme.Space
@@ -54,8 +57,14 @@ fun AppNav(container: AppContainer) {
                 onBack = { nav.popBackStack() },
             )
         }
-        composable(Routes.SEARCH) { StubScreen("Search", "Finding text across every page arrives in the next build step.") { nav.popBackStack() } }
-        composable(Routes.TRASH) { StubScreen("Trash", "Deleted pages will wait here until you empty them.") { nav.popBackStack() } }
+        composable(Routes.SEARCH) {
+            SearchScreen(
+                container = container,
+                onBack = { nav.popBackStack() },
+                onOpenPage = { nav.navigate(Routes.page(it)) },
+            )
+        }
+        composable(Routes.TRASH) { TrashScreen(container = container, onBack = { nav.popBackStack() }) }
         composable(Routes.SETTINGS) { StubScreen("Settings", "Theme, fonts and backups arrive in a later step.") { nav.popBackStack() } }
     }
 }
@@ -65,7 +74,7 @@ fun AppNav(container: AppContainer) {
 private fun StubScreen(title: String, note: String, onBack: () -> Unit) {
     val c = AppTheme.colors
     val t = AppTheme.type
-    Column(Modifier.fillMaxSize().statusBarsPadding()) {
+    Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
         Row(Modifier.fillMaxWidth().height(Dim.topBar), verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.size(Dim.touchMin).clickable(onClick = onBack), contentAlignment = Alignment.Center) {
                 Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = c.text)

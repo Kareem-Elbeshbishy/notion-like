@@ -25,7 +25,28 @@ interface PageDao {
 
     @Query("UPDATE page SET updated_at = :now WHERE id = :id")
     suspend fun touch(id: String, now: Long)
+
+    @Query("SELECT * FROM page WHERE trashed_at IS NOT NULL ORDER BY trashed_at DESC")
+    fun observeTrashed(): Flow<List<PageEntity>>
+
+    @Query("UPDATE page SET trashed_at = :now, updated_at = :now WHERE id = :id")
+    suspend fun trash(id: String, now: Long)
+
+    @Query("UPDATE page SET trashed_at = NULL, updated_at = :now WHERE id = :id")
+    suspend fun restore(id: String, now: Long)
+
+    @Query("DELETE FROM page WHERE id = :id")
+    suspend fun delete(id: String)
+
+    @Query("DELETE FROM page WHERE trashed_at IS NOT NULL")
+    suspend fun deleteAllTrashed()
+
+    @Query("SELECT * FROM page WHERE trashed_at IS NULL AND title LIKE '%' || :q || '%' ESCAPE '\\' ORDER BY updated_at DESC LIMIT 50")
+    suspend fun searchTitles(q: String): List<PageEntity>
 }
+
+/** A block whose text matched a search. */
+data class BlockHit(val pageId: String, val text: String)
 
 @Dao
 interface BlockDao {
@@ -43,4 +64,11 @@ interface BlockDao {
 
     @Query("DELETE FROM block WHERE id = :id")
     suspend fun delete(id: String)
+
+    @Query(
+        "SELECT b.page_id AS pageId, b.text AS text FROM block b JOIN page p ON p.id = b.page_id " +
+            "WHERE p.trashed_at IS NULL AND b.text LIKE '%' || :q || '%' ESCAPE '\\' " +
+            "ORDER BY p.updated_at DESC LIMIT 100",
+    )
+    suspend fun searchText(q: String): List<BlockHit>
 }

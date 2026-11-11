@@ -16,7 +16,9 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
@@ -83,10 +85,18 @@ fun EditorScreen(container: AppContainer, pageId: String, onBack: () -> Unit) {
     Scaffold(
         containerColor = c.bg,
         topBar = {
-            Row(Modifier.fillMaxWidth().height(Dim.topBar), verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                Modifier.statusBarsPadding().fillMaxWidth().height(Dim.topBar),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
                 Box(Modifier.size(Dim.touchMin).clickable(onClick = onBack), contentAlignment = Alignment.Center) {
                     Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = c.text)
                 }
+                Spacer(Modifier.weight(1f))
+                Box(
+                    Modifier.size(Dim.touchMin).clickable { vm.trashPage(onBack) },
+                    contentAlignment = Alignment.Center,
+                ) { Icon(Icons.Default.Delete, contentDescription = "Move page to trash", tint = c.textMuted) }
             }
         },
     ) { inner ->

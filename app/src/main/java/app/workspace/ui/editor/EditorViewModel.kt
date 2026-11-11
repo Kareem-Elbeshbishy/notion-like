@@ -243,6 +243,13 @@ class EditorViewModel(private val repo: WorkspaceRepo, private val pageId: Strin
         repo.saveEdits(pageId, newTitle, texts)
     }
 
+    /** Saves pending text, moves the page to the trash, then leaves the screen. */
+    fun trashPage(onDone: () -> Unit) {
+        flush()
+        repo.trashPage(pageId)
+        onDone()
+    }
+
     override fun onCleared() {
         flush()
     }

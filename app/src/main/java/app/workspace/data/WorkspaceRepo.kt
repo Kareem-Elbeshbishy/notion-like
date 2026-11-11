@@ -9,6 +9,8 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.launch
 import java.util.UUID
 
+data class SearchHit(val pageId: String, val title: String, val snippet: String)
+
 /**
  * The only door to the database. Writes go through one queue, so they land in the order the
  * UI issued them even when the screen that issued them is already gone.
@@ -47,6 +49,41 @@ class WorkspaceRepo(private val db: AppDatabase, scope: CoroutineScope) {
     }
 
     fun observeRootPages(): Flow<List<PageEntity>> = pages.observeRoots()
+
+    fun observeTrashed(): Flow<List<PageEntity>> = pages.observeTrashed()
+
+    fun trashPage(id: String) = write { pages.trash(id, System.currentTimeMillis()) }
+
+    fun restorePage(id: String) = write { pages.restore(id, System.currentTimeMillis()) }
+
+    fun deletePageForever(id: String) = write { pages.delete(id) }
+
+    fun emptyTrash() = write { pages.deleteAllTrashed() }
+
+    /** Plain substring search over page titles and block text; trashed pages are left out. */
+    suspend fun search(query: String): List<SearchHit> {
+        val q = query.trim()
+        if (q.isEmpty()) return emptyList()
+        val like = q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        val hits = LinkedHashMap<String, SearchHit>()
+        pages.searchTitles(like).forEach { hits[it.id] = SearchHit(it.id, it.title, "") }
+        blocks.searchText(like).forEach { h ->
+            val existing = hits[h.pageId]
+            if (existing == null || existing.snippet.isEmpty()) {
+                val title = existing?.title ?: pages.get(h.pageId)?.title.orEmpty()
+                hits[h.pageId] = SearchHit(h.pageId, title, snippet(h.text, q))
+            }
+        }
+        return hits.values.toList()
+    }
+
+    private fun snippet(text: String, q: String): String {
+        val i = text.indexOf(q, ignoreCase = true)
+        if (i < 0) return text.take(80)
+        val start = maxOf(0, i - 30)
+        val end = minOf(text.length, i + q.length + 50)
+        return (if (start > 0) "\u2026" else "") + text.substring(start, end) + (if (end < text.length) "\u2026" else "")
+    }
 
     suspend fun createPage(): String = writeAndGet {
         db.withTransaction {

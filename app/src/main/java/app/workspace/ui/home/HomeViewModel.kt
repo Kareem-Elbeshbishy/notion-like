@@ -17,4 +17,8 @@ class HomeViewModel(private val repo: WorkspaceRepo) : ViewModel() {
     fun newPage(onCreated: (String) -> Unit) {
         viewModelScope.launch { onCreated(repo.createPage()) }
     }
+
+    fun trash(id: String) = repo.trashPage(id)
+
+    fun restore(id: String) = repo.restorePage(id)
 }
