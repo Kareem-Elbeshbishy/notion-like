@@ -132,10 +132,11 @@ class WorkspaceRepo(private val db: AppDatabase, scope: CoroutineScope) {
     suspend fun loadPage(id: String): Pair<PageEntity?, List<BlockEntity>> =
         pages.get(id) to blocks.topLevel(id)
 
-    fun saveEdits(pageId: String, title: String?, texts: List<Pair<String, String>>) = write {
+    /** [texts] holds (block id, plain text, spans as JSON). */
+    fun saveEdits(pageId: String, title: String?, texts: List<Triple<String, String, String>>) = write {
         db.withTransaction {
             val now = System.currentTimeMillis()
-            texts.forEach { (id, text) -> blocks.setText(id, text, now) }
+            texts.forEach { (id, text, spans) -> blocks.setText(id, text, spans, now) }
             if (title != null) pages.setTitle(pageId, title, now) else pages.touch(pageId, now)
         }
     }
@@ -148,20 +149,20 @@ class WorkspaceRepo(private val db: AppDatabase, scope: CoroutineScope) {
     }
 
     /** Enter in the middle of a block: shorten the current one, add the tail as a new block. */
-    fun splitBlock(currentId: String, currentText: String, tail: BlockEntity) = write {
+    fun splitBlock(currentId: String, currentText: String, currentSpans: String, tail: BlockEntity) = write {
         db.withTransaction {
             val now = System.currentTimeMillis()
-            blocks.setText(currentId, currentText, now)
+            blocks.setText(currentId, currentText, currentSpans, now)
             blocks.upsert(tail)
             pages.touch(tail.pageId, now)
         }
     }
 
     /** Backspace at the start of a block: the text moves up into the previous one. */
-    fun mergeBlocks(pageId: String, keepId: String, mergedText: String, removeId: String) = write {
+    fun mergeBlocks(pageId: String, keepId: String, mergedText: String, mergedSpans: String, removeId: String) = write {
         db.withTransaction {
             val now = System.currentTimeMillis()
-            blocks.setText(keepId, mergedText, now)
+            blocks.setText(keepId, mergedText, mergedSpans, now)
             blocks.delete(removeId)
             pages.touch(pageId, now)
         }

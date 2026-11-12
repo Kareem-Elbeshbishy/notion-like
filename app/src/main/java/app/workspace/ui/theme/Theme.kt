@@ -82,3 +82,35 @@ fun WorkspaceTheme(
         MaterialTheme(colorScheme = scheme, content = content)
     }
 }
+
+
+/** Named colours for text colour and highlight marks. Values come from tokens.json / tokens.dark.json. */
+@Immutable
+data class TagColor(val bg: Color, val text: Color)
+
+val TagColorsLight = mapOf(
+    "gray" to TagColor(Color(0xFFECECEA), Color(0xFF3F3F3A)),
+    "brown" to TagColor(Color(0xFFF0E6DF), Color(0xFF5C3D2A)),
+    "orange" to TagColor(Color(0xFFFBE8D6), Color(0xFF8A4300)),
+    "yellow" to TagColor(Color(0xFFF7EFC4), Color(0xFF6B5200)),
+    "green" to TagColor(Color(0xFFDCF1E3), Color(0xFF1A6B3C)),
+    "blue" to TagColor(Color(0xFFDBEAFB), Color(0xFF1D4F91)),
+    "purple" to TagColor(Color(0xFFE9E1F7), Color(0xFF52308F)),
+    "pink" to TagColor(Color(0xFFF8E0EC), Color(0xFF8C2A5A)),
+    "red" to TagColor(Color(0xFFFBDFDB), Color(0xFF9B2318)),
+)
+
+val TagColorsDark = mapOf(
+    "gray" to TagColor(Color(0xFF363634), Color(0xFFDCDCD8)),
+    "brown" to TagColor(Color(0xFF443328), Color(0xFFECD3C0)),
+    "orange" to TagColor(Color(0xFF4A3317), Color(0xFFF6C48C)),
+    "yellow" to TagColor(Color(0xFF473F14), Color(0xFFEFDF86)),
+    "green" to TagColor(Color(0xFF1D3D2B), Color(0xFFA6E3BD)),
+    "blue" to TagColor(Color(0xFF1C3550), Color(0xFFA9CDF5)),
+    "purple" to TagColor(Color(0xFF35294F), Color(0xFFD1BFF2)),
+    "pink" to TagColor(Color(0xFF4A2639), Color(0xFFF2B8D3)),
+    "red" to TagColor(Color(0xFF4D2723), Color(0xFFF6B4AC)),
+)
+
+@Composable
+fun tagColors(): Map<String, TagColor> = if (isSystemInDarkTheme()) TagColorsDark else TagColorsLight

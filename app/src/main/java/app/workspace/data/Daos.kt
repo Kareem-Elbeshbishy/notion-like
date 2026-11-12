@@ -70,8 +70,8 @@ interface BlockDao {
     @Query("SELECT sort_key FROM block WHERE page_id = :pageId AND parent_block_id IS NULL ORDER BY sort_key DESC LIMIT 1")
     suspend fun lastTopLevelKey(pageId: String): String?
 
-    @Query("UPDATE block SET text = :text, updated_at = :now WHERE id = :id")
-    suspend fun setText(id: String, text: String, now: Long)
+    @Query("UPDATE block SET text = :text, spans = :spans, updated_at = :now WHERE id = :id")
+    suspend fun setText(id: String, text: String, spans: String, now: Long)
 
     @Query("UPDATE block SET type = :type, props = :props, updated_at = :now WHERE id = :id")
     suspend fun setTypeAndProps(id: String, type: String, props: String, now: Long)
