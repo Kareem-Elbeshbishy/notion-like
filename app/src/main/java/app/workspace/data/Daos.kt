@@ -4,6 +4,7 @@ import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import androidx.room.Upsert
 import kotlinx.coroutines.flow.Flow
 
 @Dao
@@ -13,6 +14,15 @@ interface PageDao {
 
     @Query("SELECT * FROM page WHERE id = :id")
     suspend fun get(id: String): PageEntity?
+
+    @Query("SELECT * FROM page WHERE id = :id")
+    fun observe(id: String): Flow<PageEntity?>
+
+    @Query("SELECT * FROM page WHERE trashed_at IS NULL")
+    fun observeAlive(): Flow<List<PageEntity>>
+
+    @Query("SELECT sort_key FROM page WHERE parent_id = :parentId AND trashed_at IS NULL ORDER BY sort_key DESC LIMIT 1")
+    suspend fun lastChildKey(parentId: String): String?
 
     @Query("SELECT sort_key FROM page WHERE parent_id IS NULL AND trashed_at IS NULL ORDER BY sort_key DESC LIMIT 1")
     suspend fun lastRootKey(): String?
@@ -53,8 +63,12 @@ interface BlockDao {
     @Query("SELECT * FROM block WHERE page_id = :pageId AND parent_block_id IS NULL ORDER BY sort_key")
     suspend fun topLevel(pageId: String): List<BlockEntity>
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    // @Upsert updates in place. REPLACE would delete the row first and cascade away its children.
+    @Upsert
     suspend fun upsert(block: BlockEntity)
+
+    @Query("SELECT sort_key FROM block WHERE page_id = :pageId AND parent_block_id IS NULL ORDER BY sort_key DESC LIMIT 1")
+    suspend fun lastTopLevelKey(pageId: String): String?
 
     @Query("UPDATE block SET text = :text, updated_at = :now WHERE id = :id")
     suspend fun setText(id: String, text: String, now: Long)

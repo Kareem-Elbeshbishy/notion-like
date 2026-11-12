@@ -10,9 +10,12 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import app.workspace.data.BlockEntity
 import app.workspace.data.FractionalKey
+import app.workspace.data.PageEntity
 import app.workspace.data.WorkspaceRepo
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
 import org.json.JSONObject
 import java.util.UUID
@@ -27,6 +30,8 @@ const val MARKER = "\u200B"
 
 val LIST_TYPES = setOf("bulleted", "numbered", "todo")
 
+const val PAGE_LINK = "page_link"
+
 class BlockUi(
     val id: String,
     type: String,
@@ -37,11 +42,24 @@ class BlockUi(
 ) {
     var type by mutableStateOf(type)
     var checked by mutableStateOf(checked)
+    var linkedPageId by mutableStateOf<String?>(null)
     var value by mutableStateOf(
         TextFieldValue(MARKER + text, TextRange(if (caretAtStart) MARKER.length else MARKER.length + text.length)),
     )
     val plain: String get() = value.text.removePrefix(MARKER)
 }
+
+/** An immutable picture of one block, used for undo and redo. */
+data class BSnap(
+    val id: String,
+    val type: String,
+    val text: String,
+    val checked: Boolean,
+    val sortKey: String,
+    val linkedPageId: String?,
+)
+
+data class Snap(val title: String, val blocks: List<BSnap>)
 
 class EditorViewModel(private val repo: WorkspaceRepo, private val pageId: String) : ViewModel() {
     var loaded by mutableStateOf(false)
@@ -60,9 +78,19 @@ class EditorViewModel(private val repo: WorkspaceRepo, private val pageId: Strin
     var activeId by mutableStateOf<String?>(null)
     val active: BlockUi? get() = blocks.firstOrNull { it.id == activeId }
 
+    var canUndo by mutableStateOf(false)
+        private set
+    var canRedo by mutableStateOf(false)
+        private set
+
     private val dirtyText = LinkedHashSet<String>()
     private var titleDirty = false
     private var saveJob: Job? = null
+
+    private val undoStack = ArrayDeque<Snap>()
+    private val redoStack = ArrayDeque<Snap>()
+    private var committed = Snap("", emptyList())
+    private var recordJob: Job? = null
 
     init {
         viewModelScope.launch {
@@ -72,16 +100,24 @@ class EditorViewModel(private val repo: WorkspaceRepo, private val pageId: Strin
                 return@launch
             }
             title = page.title
-            rows.forEach { blocks.add(BlockUi(it.id, it.type, it.text, isChecked(it.props), it.sortKey)) }
+            rows.forEach { row ->
+                val b = BlockUi(row.id, row.type, row.text, isChecked(row.props), row.sortKey)
+                b.linkedPageId = linkedPageOf(row.props)
+                blocks.add(b)
+            }
             if (blocks.isEmpty()) {
                 val first = BlockUi(newId(), "text", "", false, FractionalKey.between(null, null))
                 blocks.add(first)
                 repo.insertBlock(toEntity(first))
             }
+            ensureTrailingText()
+            committed = snapshot()
             loaded = true
             if (page.title.isEmpty() && blocks.size == 1 && blocks[0].plain.isEmpty()) focusTitle = true
         }
     }
+
+    fun observePage(id: String?): Flow<PageEntity?> = if (id == null) flowOf(null) else repo.observePage(id)
 
     // ---- title -------------------------------------------------------------------------
 
@@ -97,11 +133,17 @@ class EditorViewModel(private val repo: WorkspaceRepo, private val pageId: Strin
     }
 
     fun focusFirst() {
-        blocks.firstOrNull()?.let { focusId = it.id }
+        blocks.firstOrNull { it.type != PAGE_LINK }?.let { focusId = it.id }
     }
 
     fun focusLast() {
-        blocks.lastOrNull()?.let { focusId = it.id }
+        val last = blocks.lastOrNull() ?: return
+        if (last.type == PAGE_LINK) {
+            ensureTrailingText()
+            blocks.lastOrNull()?.let { focusId = it.id }
+        } else {
+            focusId = last.id
+        }
     }
 
     // ---- block text --------------------------------------------------------------------
@@ -139,6 +181,7 @@ class EditorViewModel(private val repo: WorkspaceRepo, private val pageId: Strin
             changeType(b, "text") // Enter on an empty list item ends the list
             return
         }
+        record()
         val head = parts[0]
         b.value = TextFieldValue(head, TextRange(head.length))
         val i = blocks.indexOf(b)
@@ -157,6 +200,7 @@ class EditorViewModel(private val repo: WorkspaceRepo, private val pageId: Strin
         repo.splitBlock(b.id, head.removePrefix(MARKER), toEntity(created.first()))
         created.drop(1).forEach { repo.insertBlock(toEntity(it)) }
         focusId = created.last().id
+        record()
     }
 
     /** Backspace at the start: a styled block becomes plain text, a plain one joins the block above. */
@@ -168,6 +212,8 @@ class EditorViewModel(private val repo: WorkspaceRepo, private val pageId: Strin
         val i = blocks.indexOf(b)
         if (i <= 0) return
         val prev = blocks[i - 1]
+        if (prev.type == PAGE_LINK) return // text cannot join a page link
+        record()
         val join = prev.plain.length
         val merged = prev.plain + b.plain
         prev.value = TextFieldValue(MARKER + merged, TextRange(MARKER.length + join))
@@ -176,14 +222,17 @@ class EditorViewModel(private val repo: WorkspaceRepo, private val pageId: Strin
         dirtyText.remove(prev.id)
         repo.mergeBlocks(pageId, prev.id, merged, b.id)
         focusId = prev.id
+        record()
     }
 
     // ---- block type, check, delete -----------------------------------------------------
 
     fun changeType(b: BlockUi, type: String) {
+        record()
         b.type = type
         if (type != "todo") b.checked = false
         repo.setBlockType(pageId, b.id, b.type, propsOf(b))
+        record()
     }
 
     fun setActiveType(type: String) {
@@ -191,25 +240,160 @@ class EditorViewModel(private val repo: WorkspaceRepo, private val pageId: Strin
     }
 
     fun toggleChecked(b: BlockUi) {
+        record()
         b.checked = !b.checked
         repo.setBlockType(pageId, b.id, b.type, propsOf(b))
+        record()
     }
 
     fun deleteActive() {
         val b = active ?: return
         if (blocks.size == 1) {
+            record()
             b.value = TextFieldValue(MARKER, TextRange(MARKER.length))
-            changeType(b, "text")
+            b.type = "text"
+            b.checked = false
+            repo.setBlockType(pageId, b.id, b.type, propsOf(b))
             markDirty(b)
+            record()
             return
         }
         val i = blocks.indexOf(b)
-        blocks.removeAt(i)
+        removeBlockAt(i)
+        val neighbour = blocks.getOrNull(i - 1) ?: blocks.getOrNull(0)
+        val usable = neighbour?.takeIf { it.type != PAGE_LINK }
+        activeId = usable?.id
+        focusId = usable?.id
+    }
+
+    /** Removes a non-text block, such as a page link. The linked page itself is left alone. */
+    fun removeBlock(b: BlockUi) {
+        val i = blocks.indexOf(b)
+        if (i < 0) return
+        removeBlockAt(i)
+        ensureTrailingText()
+    }
+
+    private fun removeBlockAt(i: Int) {
+        record()
+        val b = blocks.removeAt(i)
         dirtyText.remove(b.id)
         repo.deleteBlock(pageId, b.id)
-        val neighbour = blocks.getOrNull(i - 1) ?: blocks.getOrNull(0)
-        activeId = neighbour?.id
-        focusId = neighbour?.id
+        record()
+    }
+
+    // ---- sub-pages ---------------------------------------------------------------------
+
+    /** Creates a sub-page and puts a link to it where the cursor is. */
+    fun insertSubPage() {
+        viewModelScope.launch {
+            val childId = repo.createPage(parentId = pageId, addLinkBlock = false)
+            record()
+            val a = active
+            if (a != null && a.type == "text" && a.plain.isEmpty()) {
+                a.linkedPageId = childId
+                a.type = PAGE_LINK
+                repo.setBlockType(pageId, a.id, PAGE_LINK, propsOf(a))
+                activeId = null
+            } else {
+                val i = if (a != null) blocks.indexOf(a) else blocks.lastIndex
+                val key = FractionalKey.between(blocks.getOrNull(i)?.sortKey, blocks.getOrNull(i + 1)?.sortKey)
+                val nb = BlockUi(newId(), PAGE_LINK, "", false, key)
+                nb.linkedPageId = childId
+                blocks.add(i + 1, nb)
+                repo.insertBlock(toEntity(nb))
+            }
+            ensureTrailingText()
+            record()
+        }
+    }
+
+    /** A page that ends in a link always keeps an empty text block below it to type into. */
+    private fun ensureTrailingText() {
+        val last = blocks.lastOrNull() ?: return
+        if (last.type != PAGE_LINK) return
+        val nb = BlockUi(newId(), "text", "", false, FractionalKey.between(last.sortKey, null))
+        blocks.add(nb)
+        repo.insertBlock(toEntity(nb))
+    }
+
+    // ---- undo and redo -----------------------------------------------------------------
+
+    private fun snapshot() = Snap(
+        title,
+        blocks.map { BSnap(it.id, it.type, it.plain, it.checked, it.sortKey, it.linkedPageId) },
+    )
+
+    /** Stores the current state as an undo step if it differs from the last stored one. */
+    private fun record() {
+        if (!loaded) return
+        recordJob?.cancel()
+        val now = snapshot()
+        if (now != committed) {
+            undoStack.addLast(committed)
+            if (undoStack.size > 100) undoStack.removeFirst()
+            redoStack.clear()
+            committed = now
+        }
+        canUndo = undoStack.isNotEmpty()
+        canRedo = redoStack.isNotEmpty()
+    }
+
+    /** Typing is grouped: one undo step per pause of 600 ms. */
+    private fun scheduleRecord() {
+        canUndo = true
+        recordJob?.cancel()
+        recordJob = viewModelScope.launch {
+            delay(600)
+            record()
+        }
+    }
+
+    fun undo() {
+        record()
+        val target = undoStack.removeLastOrNull() ?: return
+        redoStack.addLast(committed)
+        restore(target)
+    }
+
+    fun redo() {
+        record()
+        val target = redoStack.removeLastOrNull() ?: return
+        undoStack.addLast(committed)
+        restore(target)
+    }
+
+    private fun restore(target: Snap) {
+        flush() // the stored copy now matches the screen
+        val before = snapshot().blocks.associateBy { it.id }
+        val byId = blocks.associateBy { it.id }
+        val rebuilt = target.blocks.map { s ->
+            val existing = byId[s.id]
+            if (existing != null) {
+                existing.type = s.type
+                existing.checked = s.checked
+                existing.sortKey = s.sortKey
+                existing.linkedPageId = s.linkedPageId
+                if (existing.plain != s.text) {
+                    existing.value = TextFieldValue(MARKER + s.text, TextRange(MARKER.length + s.text.length))
+                }
+                existing
+            } else {
+                BlockUi(s.id, s.type, s.text, s.checked, s.sortKey).also { it.linkedPageId = s.linkedPageId }
+            }
+        }
+        val keep = target.blocks.map { it.id }.toSet()
+        val upserts = target.blocks.filter { before[it.id] != it }.map { entityOf(it) }
+        val deletes = before.keys.filter { it !in keep }
+        val titleChanged = target.title != title
+        if (titleChanged) title = target.title
+        blocks.clear()
+        blocks.addAll(rebuilt)
+        if (activeId !in keep) activeId = null
+        repo.applyHistory(pageId, if (titleChanged) target.title else null, upserts, deletes)
+        committed = target
+        canUndo = undoStack.isNotEmpty()
+        canRedo = redoStack.isNotEmpty()
     }
 
     // ---- saving ------------------------------------------------------------------------
@@ -217,11 +401,13 @@ class EditorViewModel(private val repo: WorkspaceRepo, private val pageId: Strin
     private fun markDirty(b: BlockUi) {
         dirtyText.add(b.id)
         scheduleSave()
+        scheduleRecord()
     }
 
     private fun markTitle() {
         titleDirty = true
         scheduleSave()
+        scheduleRecord()
     }
 
     private fun scheduleSave() {
@@ -258,16 +444,35 @@ class EditorViewModel(private val repo: WorkspaceRepo, private val pageId: Strin
 
     private fun newId() = UUID.randomUUID().toString()
 
-    private fun propsOf(b: BlockUi) = if (b.checked) """{"checked":true}""" else "{}"
+    private fun propsJson(checked: Boolean, linkedPageId: String?): String {
+        val o = JSONObject()
+        if (checked) o.put("checked", true)
+        if (linkedPageId != null) o.put("pageId", linkedPageId)
+        return o.toString()
+    }
+
+    private fun propsOf(b: BlockUi) = propsJson(b.checked, b.linkedPageId)
 
     private fun isChecked(props: String) =
         runCatching { JSONObject(props).optBoolean("checked") }.getOrDefault(false)
+
+    private fun linkedPageOf(props: String): String? =
+        runCatching { JSONObject(props).optString("pageId") }.getOrNull()?.ifEmpty { null }
 
     private fun toEntity(b: BlockUi): BlockEntity {
         val now = System.currentTimeMillis()
         return BlockEntity(
             id = b.id, pageId = pageId, parentBlockId = null, type = b.type, text = b.plain,
             spans = "[]", props = propsOf(b), sortKey = b.sortKey, createdAt = now, updatedAt = now,
+        )
+    }
+
+    private fun entityOf(s: BSnap): BlockEntity {
+        val now = System.currentTimeMillis()
+        return BlockEntity(
+            id = s.id, pageId = pageId, parentBlockId = null, type = s.type, text = s.text,
+            spans = "[]", props = propsJson(s.checked, s.linkedPageId), sortKey = s.sortKey,
+            createdAt = now, updatedAt = now,
         )
     }
 }

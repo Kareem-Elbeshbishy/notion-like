@@ -17,6 +17,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
@@ -44,7 +46,6 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import app.workspace.AppContainer
-import app.workspace.data.PageEntity
 import app.workspace.ui.Routes
 import app.workspace.ui.theme.AppTheme
 import app.workspace.ui.theme.Dim
@@ -55,7 +56,7 @@ import kotlinx.coroutines.launch
 @Composable
 fun HomeScreen(container: AppContainer, onOpenPage: (String) -> Unit, onOpenRoute: (String) -> Unit) {
     val vm: HomeViewModel = viewModel(factory = viewModelFactory { initializer { HomeViewModel(container.repo) } })
-    val pages by vm.pages.collectAsStateWithLifecycle()
+    val rows by vm.rows.collectAsStateWithLifecycle()
     val c = AppTheme.colors
     val t = AppTheme.type
     val snackbar = remember { SnackbarHostState() }
@@ -84,7 +85,7 @@ fun HomeScreen(container: AppContainer, onOpenPage: (String) -> Unit, onOpenRout
             ) { Icon(Icons.Default.Add, contentDescription = "New page") }
         },
     ) { inner ->
-        val list = pages
+        val list = rows
         Box(Modifier.fillMaxSize().padding(inner)) {
             when {
                 list == null -> Unit
@@ -94,16 +95,18 @@ fun HomeScreen(container: AppContainer, onOpenPage: (String) -> Unit, onOpenRout
                     modifier = Modifier.padding(Dim.pagePadding),
                 )
                 else -> LazyColumn(contentPadding = PaddingValues(bottom = Dim.topBar + Space.s32)) {
-                    items(list, key = { it.id }) { page ->
+                    items(list, key = { it.page.id }) { row ->
                         PageRow(
-                            page = page,
-                            onClick = { onOpenPage(page.id) },
+                            row = row,
+                            onClick = { onOpenPage(row.page.id) },
+                            onToggle = { vm.toggle(row.page.id) },
+                            onAddSubPage = { vm.addSubPage(row.page.id, onOpenPage) },
                             onTrash = {
-                                vm.trash(page.id)
+                                vm.trash(row.page.id)
                                 scope.launch {
                                     snackbar.currentSnackbarData?.dismiss()
                                     val result = snackbar.showSnackbar("Moved to trash", actionLabel = "Undo")
-                                    if (result == SnackbarResult.ActionPerformed) vm.restore(page.id)
+                                    if (result == SnackbarResult.ActionPerformed) vm.restore(row.page.id)
                                 }
                             },
                         )
@@ -122,16 +125,35 @@ private fun TopIcon(icon: ImageVector, label: String, onClick: () -> Unit) {
 }
 
 @Composable
-private fun PageRow(page: PageEntity, onClick: () -> Unit, onTrash: () -> Unit) {
+private fun PageRow(
+    row: TreeRow,
+    onClick: () -> Unit,
+    onToggle: () -> Unit,
+    onAddSubPage: () -> Unit,
+    onTrash: () -> Unit,
+) {
     val c = AppTheme.colors
-    val blank = page.title.isBlank()
+    val blank = row.page.title.isBlank()
     var menuOpen by remember { mutableStateOf(false) }
     Row(
-        Modifier.fillMaxWidth().heightIn(min = Dim.touchMin).clickable(onClick = onClick).padding(start = Dim.pagePadding),
+        Modifier.fillMaxWidth().heightIn(min = Dim.touchMin).clickable(onClick = onClick)
+            .padding(start = Space.s16 * row.depth),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        Box(
+            Modifier.size(Dim.touchMin).then(if (row.hasChildren) Modifier.clickable(onClick = onToggle) else Modifier),
+            contentAlignment = Alignment.Center,
+        ) {
+            if (row.hasChildren) {
+                Icon(
+                    imageVector = if (row.expanded) Icons.Default.KeyboardArrowDown else Icons.Default.KeyboardArrowRight,
+                    contentDescription = if (row.expanded) "Collapse" else "Expand",
+                    tint = c.textMuted,
+                )
+            }
+        }
         Text(
-            text = if (blank) "Untitled" else page.title,
+            text = if (blank) "Untitled" else row.page.title,
             style = AppTheme.type.body,
             color = if (blank) c.textMuted else c.text,
             maxLines = 1,
@@ -143,6 +165,13 @@ private fun PageRow(page: PageEntity, onClick: () -> Unit, onTrash: () -> Unit) 
                 Icon(Icons.Default.MoreVert, contentDescription = "Page options", tint = c.textMuted)
             }
             DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                DropdownMenuItem(
+                    text = { Text("Add sub-page") },
+                    onClick = {
+                        menuOpen = false
+                        onAddSubPage()
+                    },
+                )
                 DropdownMenuItem(
                     text = { Text("Move to trash") },
                     onClick = {

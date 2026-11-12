@@ -55,6 +55,7 @@ fun AppNav(container: AppContainer) {
                 container = container,
                 pageId = entry.arguments?.getString("id").orEmpty(),
                 onBack = { nav.popBackStack() },
+                onOpenPage = { nav.navigate(Routes.page(it)) },
             )
         }
         composable(Routes.SEARCH) {

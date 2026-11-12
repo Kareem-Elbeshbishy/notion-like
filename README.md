@@ -11,4 +11,4 @@ Native Kotlin, Jetpack Compose, Room. No INTERNET permission: the app cannot rea
 Open this folder. If it asks for a Gradle version, run `gradle wrapper --gradle-version 8.9` once in this folder, or pick Gradle 8.9 in the dialog.
 
 ## Status
-Step 1 of the build order (vertical slice): create a page, write blocks, reopen it. See `../replica/build-log.md`.
+Build order steps 1 and 2 are in progress (editor, trash, search, page tree, sub-pages, undo/redo). See `replica/build-log.md`.

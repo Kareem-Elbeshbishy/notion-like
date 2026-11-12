@@ -30,12 +30,16 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -73,7 +77,7 @@ private val TYPES = listOf(
 )
 
 @Composable
-fun EditorScreen(container: AppContainer, pageId: String, onBack: () -> Unit) {
+fun EditorScreen(container: AppContainer, pageId: String, onBack: () -> Unit, onOpenPage: (String) -> Unit) {
     val vm: EditorViewModel = viewModel(
         key = pageId,
         factory = viewModelFactory { initializer { EditorViewModel(container.repo, pageId) } },
@@ -93,6 +97,8 @@ fun EditorScreen(container: AppContainer, pageId: String, onBack: () -> Unit) {
                     Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = c.text)
                 }
                 Spacer(Modifier.weight(1f))
+                TextButton(onClick = vm::undo, enabled = vm.canUndo) { Text("Undo") }
+                TextButton(onClick = vm::redo, enabled = vm.canRedo) { Text("Redo") }
                 Box(
                     Modifier.size(Dim.touchMin).clickable { vm.trashPage(onBack) },
                     contentAlignment = Alignment.Center,
@@ -109,12 +115,13 @@ fun EditorScreen(container: AppContainer, pageId: String, onBack: () -> Unit) {
                 !vm.loaded -> Unit
                 else -> {
                     Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
-                        EditorList(vm)
+                        EditorList(vm, onOpenPage)
                     }
                     if (vm.active != null) {
                         TypeBar(
                             current = vm.active?.type.orEmpty(),
                             onType = vm::setActiveType,
+                            onSubPage = vm::insertSubPage,
                             onDelete = vm::deleteActive,
                         )
                     }
@@ -125,14 +132,14 @@ fun EditorScreen(container: AppContainer, pageId: String, onBack: () -> Unit) {
 }
 
 @Composable
-private fun EditorList(vm: EditorViewModel) {
+private fun EditorList(vm: EditorViewModel, onOpenPage: (String) -> Unit) {
     LazyColumn(
         modifier = Modifier.widthIn(max = Dim.contentMax).fillMaxWidth().fillMaxHeight(),
         contentPadding = PaddingValues(horizontal = Dim.pagePadding, vertical = Space.s16),
     ) {
         item(key = "title") { TitleField(vm) }
         itemsIndexed(vm.blocks, key = { _, b -> b.id }) { index, b ->
-            BlockRow(vm, b, listNumber(vm.blocks, index))
+            BlockRow(vm, b, listNumber(vm.blocks, index), onOpenPage)
         }
         item(key = "tail") {
             Box(Modifier.fillMaxWidth().height(Dim.touchMin * 2).clickable { vm.focusLast() })
@@ -178,7 +185,50 @@ private fun TitleField(vm: EditorViewModel) {
 }
 
 @Composable
-private fun BlockRow(vm: EditorViewModel, b: BlockUi, number: Int) {
+private fun BlockRow(vm: EditorViewModel, b: BlockUi, number: Int, onOpenPage: (String) -> Unit) {
+    if (b.type == PAGE_LINK) PageLinkRow(vm, b, onOpenPage) else TextBlockRow(vm, b, number)
+}
+
+@Composable
+private fun PageLinkRow(vm: EditorViewModel, b: BlockUi, onOpen: (String) -> Unit) {
+    val c = AppTheme.colors
+    val t = AppTheme.type
+    val id = b.linkedPageId
+    val flow = remember(id) { vm.observePage(id) }
+    val page by flow.collectAsStateWithLifecycle(initialValue = null)
+    val current = page
+    val label = when {
+        current == null -> "Page not found"
+        current.title.isBlank() -> "Untitled"
+        else -> current.title
+    }
+    Row(
+        Modifier.fillMaxWidth().heightIn(min = Dim.touchMin)
+            .clickable(enabled = id != null && current != null) { id?.let(onOpen) },
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text("\uD83D\uDCC4", style = t.body, modifier = Modifier.padding(end = Space.s8))
+        Text(
+            text = label,
+            style = t.body.copy(textDecoration = TextDecoration.Underline),
+            color = if (current == null || current.trashedAt != null) c.textMuted else c.text,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f, fill = false),
+        )
+        if (current?.trashedAt != null) {
+            Text("  (in trash)", style = t.small, color = c.textMuted)
+        }
+        Spacer(Modifier.weight(1f))
+        Box(
+            Modifier.size(Dim.touchMin).clickable(role = Role.Button) { vm.removeBlock(b) },
+            contentAlignment = Alignment.Center,
+        ) { Icon(Icons.Default.Close, contentDescription = "Remove link", tint = c.textMuted) }
+    }
+}
+
+@Composable
+private fun TextBlockRow(vm: EditorViewModel, b: BlockUi, number: Int) {
     val c = AppTheme.colors
     val t = AppTheme.type
     val focus = remember { FocusRequester() }
@@ -254,7 +304,7 @@ private fun hint(type: String) = when (type) {
 }
 
 @Composable
-private fun TypeBar(current: String, onType: (String) -> Unit, onDelete: () -> Unit) {
+private fun TypeBar(current: String, onType: (String) -> Unit, onSubPage: () -> Unit, onDelete: () -> Unit) {
     val c = AppTheme.colors
     val t = AppTheme.type
     Column(Modifier.fillMaxWidth().background(c.surface)) {
@@ -275,6 +325,12 @@ private fun TypeBar(current: String, onType: (String) -> Unit, onDelete: () -> U
                     Text(label, style = t.small, color = if (selected) c.accent else c.text)
                 }
             }
+            Box(
+                Modifier.heightIn(min = Dim.touchMin).clip(RoundedCornerShape(Radius.md))
+                    .clickable(role = Role.Button, onClick = onSubPage)
+                    .padding(horizontal = Space.s12),
+                contentAlignment = Alignment.Center,
+            ) { Text("Sub-page", style = t.small, color = c.text) }
             Box(
                 Modifier.size(Dim.touchMin).clickable(role = Role.Button, onClick = onDelete),
                 contentAlignment = Alignment.Center,

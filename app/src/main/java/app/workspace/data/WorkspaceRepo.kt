@@ -7,6 +7,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.launch
+import org.json.JSONObject
 import java.util.UUID
 
 data class SearchHit(val pageId: String, val title: String, val snippet: String)
@@ -85,19 +86,46 @@ class WorkspaceRepo(private val db: AppDatabase, scope: CoroutineScope) {
         return (if (start > 0) "\u2026" else "") + text.substring(start, end) + (if (end < text.length) "\u2026" else "")
     }
 
-    suspend fun createPage(): String = writeAndGet {
+    fun observePage(id: String): Flow<PageEntity?> = pages.observe(id)
+
+    fun observeAlivePages(): Flow<List<PageEntity>> = pages.observeAlive()
+
+    /**
+     * Creates a page. With a parent it becomes a sub-page; [addLinkBlock] also drops a link
+     * block to it at the end of the parent page (what the sidebar "add sub-page" does).
+     */
+    suspend fun createPage(parentId: String? = null, addLinkBlock: Boolean = false): String = writeAndGet {
         db.withTransaction {
             val now = System.currentTimeMillis()
             val id = UUID.randomUUID().toString()
+            val lastKey = if (parentId == null) pages.lastRootKey() else pages.lastChildKey(parentId)
             pages.insert(
                 PageEntity(
-                    id = id, parentId = null, title = "", icon = null, coverPath = null,
-                    isFavorite = false, sortKey = FractionalKey.between(pages.lastRootKey(), null),
+                    id = id, parentId = parentId, title = "", icon = null, coverPath = null,
+                    isFavorite = false, sortKey = FractionalKey.between(lastKey, null),
                     trashedAt = null, createdAt = now, updatedAt = now,
                 ),
             )
             blocks.upsert(newBlock(id, "text", "", FractionalKey.between(null, null), "{}"))
+            if (parentId != null) {
+                if (addLinkBlock) {
+                    val props = JSONObject().put("pageId", id).toString()
+                    val key = FractionalKey.between(blocks.lastTopLevelKey(parentId), null)
+                    blocks.upsert(newBlock(parentId, "page_link", "", key, props))
+                }
+                pages.touch(parentId, now)
+            }
             id
+        }
+    }
+
+    /** Undo / redo: bring the stored blocks in line with a snapshot in one transaction. */
+    fun applyHistory(pageId: String, title: String?, upserts: List<BlockEntity>, deletes: List<String>) = write {
+        db.withTransaction {
+            val now = System.currentTimeMillis()
+            upserts.forEach { blocks.upsert(it) }
+            deletes.forEach { blocks.delete(it) }
+            if (title != null) pages.setTitle(pageId, title, now) else pages.touch(pageId, now)
         }
     }
 
