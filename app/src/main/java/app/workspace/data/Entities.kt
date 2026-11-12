@@ -50,3 +50,62 @@ data class BlockEntity(
     @ColumnInfo(name = "created_at") val createdAt: Long,
     @ColumnInfo(name = "updated_at") val updatedAt: Long,
 )
+
+@Entity(
+    tableName = "db_database",
+    foreignKeys = [ForeignKey(entity = PageEntity::class, parentColumns = ["id"], childColumns = ["page_id"], onDelete = ForeignKey.CASCADE)],
+    indices = [Index(value = ["page_id"], unique = true)],
+)
+data class DatabaseEntity(
+    @PrimaryKey val id: String,
+    @ColumnInfo(name = "page_id") val pageId: String,
+    @ColumnInfo(name = "default_view_id") val defaultViewId: String?,
+    @ColumnInfo(name = "created_at") val createdAt: Long,
+)
+
+@Entity(
+    tableName = "db_property",
+    foreignKeys = [ForeignKey(entity = DatabaseEntity::class, parentColumns = ["id"], childColumns = ["database_id"], onDelete = ForeignKey.CASCADE)],
+    indices = [Index(value = ["database_id", "sort_key"])],
+)
+data class PropertyEntity(
+    @PrimaryKey val id: String,
+    @ColumnInfo(name = "database_id") val databaseId: String,
+    val name: String,
+    val type: String,
+    val options: String,
+    @ColumnInfo(name = "sort_key") val sortKey: String,
+)
+
+/** A database row is a page; this table holds its property values as JSON keyed by property id. */
+@Entity(
+    tableName = "db_row",
+    foreignKeys = [
+        ForeignKey(entity = PageEntity::class, parentColumns = ["id"], childColumns = ["page_id"], onDelete = ForeignKey.CASCADE),
+        ForeignKey(entity = DatabaseEntity::class, parentColumns = ["id"], childColumns = ["database_id"], onDelete = ForeignKey.CASCADE),
+    ],
+    indices = [Index(value = ["database_id"])],
+)
+data class RowEntity(
+    @PrimaryKey @ColumnInfo(name = "page_id") val pageId: String,
+    @ColumnInfo(name = "database_id") val databaseId: String,
+    @ColumnInfo(name = "values_json") val valuesJson: String,
+)
+
+@Entity(
+    tableName = "db_view",
+    foreignKeys = [ForeignKey(entity = DatabaseEntity::class, parentColumns = ["id"], childColumns = ["database_id"], onDelete = ForeignKey.CASCADE)],
+    indices = [Index(value = ["database_id", "sort_key"])],
+)
+data class ViewEntity(
+    @PrimaryKey val id: String,
+    @ColumnInfo(name = "database_id") val databaseId: String,
+    val name: String,
+    val layout: String,
+    val filters: String,
+    val sorts: String,
+    @ColumnInfo(name = "group_by") val groupBy: String?,
+    @ColumnInfo(name = "date_prop") val dateProp: String?,
+    @ColumnInfo(name = "visible_props") val visibleProps: String,
+    @ColumnInfo(name = "sort_key") val sortKey: String,
+)

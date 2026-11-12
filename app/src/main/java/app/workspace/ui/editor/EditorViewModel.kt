@@ -9,16 +9,25 @@ import androidx.compose.ui.text.input.TextFieldValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import app.workspace.data.BlockEntity
+import app.workspace.data.DbJson
+import app.workspace.data.Option
+import app.workspace.data.Prop
 import app.workspace.data.FractionalKey
 import app.workspace.data.PageEntity
 import app.workspace.data.RichText
 import app.workspace.data.Span
 import app.workspace.data.SpanJson
 import app.workspace.data.WorkspaceRepo
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import org.json.JSONObject
 import java.util.UUID
@@ -73,6 +82,9 @@ data class Snap(val title: String, val blocks: List<BSnap>)
 /** An open "/" command: where the slash sits in the block's text and what was typed after it. */
 data class SlashState(val blockId: String, val start: Int, val query: String)
 
+/** The columns and stored values of the database this page is a row of. */
+data class RowContext(val props: List<Prop>, val values: org.json.JSONObject)
+
 data class SlashItem(val id: String, val label: String, val hint: String)
 
 val SLASH_ITEMS = listOf(
@@ -90,7 +102,23 @@ val SLASH_ITEMS = listOf(
     SlashItem("subpage", "Sub-page", "A page inside this page"),
 )
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class EditorViewModel(private val repo: WorkspaceRepo, private val pageId: String) : ViewModel() {
+    /** null unless this page is a row of a database. */
+    val rowContext: StateFlow<RowContext?> = repo.observeRowDatabaseId(pageId).flatMapLatest { dbId ->
+        if (dbId == null) {
+            flowOf(null)
+        } else {
+            combine(repo.observeProperties(dbId), repo.observeRowValues(pageId)) { props, values ->
+                RowContext(props.map { DbJson.prop(it) }, DbJson.values(values))
+            }
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    fun setCell(prop: Prop, value: Any?) = repo.updateCell(pageId, prop.id, value)
+
+    fun addOption(prop: Prop, option: Option) = repo.addOption(prop.id, option)
+
     var loaded by mutableStateOf(false)
         private set
     var missing by mutableStateOf(false)

@@ -18,7 +18,7 @@ interface PageDao {
     @Query("SELECT * FROM page WHERE id = :id")
     fun observe(id: String): Flow<PageEntity?>
 
-    @Query("SELECT * FROM page WHERE trashed_at IS NULL")
+    @Query("SELECT * FROM page WHERE trashed_at IS NULL AND id NOT IN (SELECT page_id FROM db_row)")
     fun observeAlive(): Flow<List<PageEntity>>
 
     @Query("SELECT sort_key FROM page WHERE parent_id = :parentId AND trashed_at IS NULL ORDER BY sort_key DESC LIMIT 1")
@@ -85,4 +85,71 @@ interface BlockDao {
             "ORDER BY p.updated_at DESC LIMIT 100",
     )
     suspend fun searchText(q: String): List<BlockHit>
+}
+
+/** One database row as the table shows it: the page title plus its stored values. */
+data class RowItem(val pageId: String, val title: String, val valuesJson: String)
+
+@Dao
+interface DbDao {
+    @Query("SELECT * FROM db_database WHERE page_id = :pageId")
+    fun observeByPage(pageId: String): Flow<DatabaseEntity?>
+
+    @Query("SELECT * FROM db_database WHERE page_id = :pageId")
+    suspend fun getByPage(pageId: String): DatabaseEntity?
+
+    @Insert
+    suspend fun insertDatabase(database: DatabaseEntity)
+
+    @Query("SELECT * FROM db_property WHERE database_id = :dbId ORDER BY sort_key")
+    fun observeProperties(dbId: String): Flow<List<PropertyEntity>>
+
+    @Query("SELECT sort_key FROM db_property WHERE database_id = :dbId ORDER BY sort_key DESC LIMIT 1")
+    suspend fun lastPropertyKey(dbId: String): String?
+
+    @Query("SELECT * FROM db_property WHERE id = :id")
+    suspend fun getProperty(id: String): PropertyEntity?
+
+    @Insert
+    suspend fun insertProperty(property: PropertyEntity)
+
+    @Query("UPDATE db_property SET name = :name WHERE id = :id")
+    suspend fun renameProperty(id: String, name: String)
+
+    @Query("UPDATE db_property SET options = :options WHERE id = :id")
+    suspend fun setOptions(id: String, options: String)
+
+    @Query("DELETE FROM db_property WHERE id = :id")
+    suspend fun deleteProperty(id: String)
+
+    @Insert
+    suspend fun insertRow(row: RowEntity)
+
+    @Query("SELECT values_json FROM db_row WHERE page_id = :pageId")
+    suspend fun valuesOf(pageId: String): String?
+
+    @Query("UPDATE db_row SET values_json = :json WHERE page_id = :pageId")
+    suspend fun setValues(pageId: String, json: String)
+
+    @Query(
+        "SELECT r.page_id AS pageId, p.title AS title, r.values_json AS valuesJson " +
+            "FROM db_row r JOIN page p ON p.id = r.page_id " +
+            "WHERE r.database_id = :dbId AND p.trashed_at IS NULL ORDER BY p.sort_key",
+    )
+    fun observeRows(dbId: String): Flow<List<RowItem>>
+
+    @Query(
+        "SELECT p.sort_key FROM page p JOIN db_row r ON r.page_id = p.id " +
+            "WHERE r.database_id = :dbId ORDER BY p.sort_key DESC LIMIT 1",
+    )
+    suspend fun lastRowKey(dbId: String): String?
+
+    @Query("SELECT database_id FROM db_row WHERE page_id = :pageId")
+    fun observeRowDatabaseId(pageId: String): Flow<String?>
+
+    @Query("SELECT values_json FROM db_row WHERE page_id = :pageId")
+    fun observeRowValues(pageId: String): Flow<String?>
+
+    @Insert
+    suspend fun insertView(view: ViewEntity)
 }

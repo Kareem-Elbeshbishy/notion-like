@@ -16,12 +16,15 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import app.workspace.AppContainer
+import app.workspace.ui.database.DatabaseScreen
 import app.workspace.ui.editor.EditorScreen
 import app.workspace.ui.home.HomeScreen
 import app.workspace.ui.search.SearchScreen
@@ -51,12 +54,25 @@ fun AppNav(container: AppContainer) {
             )
         }
         composable(Routes.PAGE) { entry ->
-            EditorScreen(
-                container = container,
-                pageId = entry.arguments?.getString("id").orEmpty(),
-                onBack = { nav.popBackStack() },
-                onOpenPage = { nav.navigate(Routes.page(it)) },
-            )
+            val id = entry.arguments?.getString("id").orEmpty()
+            val isDatabase by produceState<Boolean?>(initialValue = null, id) {
+                value = container.repo.isDatabase(id)
+            }
+            when (isDatabase) {
+                null -> Unit
+                true -> DatabaseScreen(
+                    container = container,
+                    pageId = id,
+                    onBack = { nav.popBackStack() },
+                    onOpenPage = { nav.navigate(Routes.page(it)) },
+                )
+                false -> EditorScreen(
+                    container = container,
+                    pageId = id,
+                    onBack = { nav.popBackStack() },
+                    onOpenPage = { nav.navigate(Routes.page(it)) },
+                )
+            }
         }
         composable(Routes.SEARCH) {
             SearchScreen(

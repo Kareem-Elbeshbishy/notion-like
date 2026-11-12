@@ -77,12 +77,31 @@ fun HomeScreen(container: AppContainer, onOpenPage: (String) -> Unit, onOpenRout
             }
         },
         floatingActionButton = {
-            FloatingActionButton(
-                onClick = { vm.newPage(onOpenPage) },
-                containerColor = c.accent,
-                contentColor = c.onAccent,
-                shape = RoundedCornerShape(Radius.lg),
-            ) { Icon(Icons.Default.Add, contentDescription = "New page") }
+            var createMenu by remember { mutableStateOf(false) }
+            Box {
+                FloatingActionButton(
+                    onClick = { createMenu = true },
+                    containerColor = c.accent,
+                    contentColor = c.onAccent,
+                    shape = RoundedCornerShape(Radius.lg),
+                ) { Icon(Icons.Default.Add, contentDescription = "Create") }
+                DropdownMenu(expanded = createMenu, onDismissRequest = { createMenu = false }) {
+                    DropdownMenuItem(
+                        text = { Text("New page") },
+                        onClick = {
+                            createMenu = false
+                            vm.newPage(onOpenPage)
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("New database") },
+                        onClick = {
+                            createMenu = false
+                            vm.newDatabase(onOpenPage)
+                        },
+                    )
+                }
+            }
         },
     ) { inner ->
         val list = rows

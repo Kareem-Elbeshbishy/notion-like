@@ -27,6 +27,10 @@ class HomeViewModel(private val repo: WorkspaceRepo) : ViewModel() {
         viewModelScope.launch { onCreated(repo.createPage()) }
     }
 
+    fun newDatabase(onCreated: (String) -> Unit) {
+        viewModelScope.launch { onCreated(repo.createDatabase()) }
+    }
+
     fun addSubPage(parentId: String, onCreated: (String) -> Unit) {
         viewModelScope.launch {
             val id = repo.createPage(parentId = parentId, addLinkBlock = true)

@@ -39,7 +39,7 @@ val DarkColors = AppColors(
 
 object Space { val s2 = 2.dp; val s4 = 4.dp; val s8 = 8.dp; val s12 = 12.dp; val s16 = 16.dp; val s24 = 24.dp; val s32 = 32.dp; val s48 = 48.dp }
 object Radius { val sm = 4.dp; val md = 8.dp; val lg = 12.dp }
-object Dim { val icon = 24.dp; val touchMin = 48.dp; val topBar = 56.dp; val drawer = 320.dp; val pagePadding = 16.dp; val contentMax = 720.dp; val blockMin = 32.dp; val boardColumn = 260.dp }
+object Dim { val tableName = 200.dp; val tableCol = 160.dp; val icon = 24.dp; val touchMin = 48.dp; val topBar = 56.dp; val drawer = 320.dp; val pagePadding = 16.dp; val contentMax = 720.dp; val blockMin = 32.dp; val boardColumn = 260.dp }
 
 @Immutable
 data class AppType(

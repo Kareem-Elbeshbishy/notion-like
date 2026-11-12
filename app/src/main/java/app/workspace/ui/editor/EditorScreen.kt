@@ -82,6 +82,7 @@ import androidx.lifecycle.viewmodel.viewModelFactory
 import app.workspace.AppContainer
 import app.workspace.data.RichText
 import app.workspace.data.Span
+import app.workspace.ui.database.PropertyPanel
 import app.workspace.ui.theme.AppColors
 import app.workspace.ui.theme.AppTheme
 import app.workspace.ui.theme.Dim
@@ -157,11 +158,22 @@ fun EditorScreen(container: AppContainer, pageId: String, onBack: () -> Unit, on
 
 @Composable
 private fun EditorList(vm: EditorViewModel, onOpenPage: (String) -> Unit) {
+    val rowContext by vm.rowContext.collectAsStateWithLifecycle()
     LazyColumn(
         modifier = Modifier.widthIn(max = Dim.contentMax).fillMaxWidth().fillMaxHeight(),
         contentPadding = PaddingValues(horizontal = Dim.pagePadding, vertical = Space.s16),
     ) {
         item(key = "title") { TitleField(vm) }
+        rowContext?.let { ctx ->
+            item(key = "properties") {
+                PropertyPanel(
+                    props = ctx.props,
+                    values = ctx.values,
+                    onSet = vm::setCell,
+                    onAddOption = vm::addOption,
+                )
+            }
+        }
         itemsIndexed(vm.blocks, key = { _, b -> b.id }) { index, b ->
             BlockRow(vm, b, listNumber(vm.blocks, index), onOpenPage)
         }
