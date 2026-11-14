@@ -4,6 +4,7 @@ import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import androidx.room.Update
 import androidx.room.Upsert
 import kotlinx.coroutines.flow.Flow
 
@@ -152,4 +153,19 @@ interface DbDao {
 
     @Insert
     suspend fun insertView(view: ViewEntity)
+
+    @Query("SELECT * FROM db_view WHERE database_id = :dbId ORDER BY sort_key")
+    fun observeViews(dbId: String): Flow<List<ViewEntity>>
+
+    @Query("SELECT sort_key FROM db_view WHERE database_id = :dbId ORDER BY sort_key DESC LIMIT 1")
+    suspend fun lastViewKey(dbId: String): String?
+
+    @Query("SELECT sort_key FROM db_view WHERE id = :id")
+    suspend fun viewKey(id: String): String?
+
+    @Update
+    suspend fun updateView(view: ViewEntity)
+
+    @Query("DELETE FROM db_view WHERE id = :id")
+    suspend fun deleteView(id: String)
 }

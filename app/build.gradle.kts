@@ -13,11 +13,26 @@ android {
         applicationId = "app.workspace"
         minSdk = 26
         targetSdk = 34
-        versionCode = 1
+        versionCode = (System.getenv("GITHUB_RUN_NUMBER") ?: "1").toInt()
         versionName = "0.1.0"
     }
+    // One fixed key for every build. Android only installs an APK over an existing one when both
+    // are signed with the same key; CI makes a fresh random debug key on every run.
+    signingConfigs {
+        create("shared") {
+            storeFile = file("shared-debug.p12")
+            storeType = "pkcs12"
+            storePassword = "workspace-debug"
+            keyAlias = "workspace"
+            keyPassword = "workspace-debug"
+        }
+    }
     buildTypes {
-        release { isMinifyEnabled = false }
+        getByName("debug") { signingConfig = signingConfigs.getByName("shared") }
+        release {
+            isMinifyEnabled = false
+            signingConfig = signingConfigs.getByName("shared")
+        }
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17

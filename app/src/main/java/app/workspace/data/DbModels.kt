@@ -56,3 +56,71 @@ object DbJson {
         return List(arr.length()) { arr.optString(it) }
     }
 }
+
+/** The kinds of view a database can show. */
+object Layout {
+    const val TABLE = "table"
+    const val BOARD = "board"
+    const val LIST = "list"
+    const val GALLERY = "gallery"
+    const val CALENDAR = "calendar"
+
+    val ALL = listOf(
+        TABLE to "Table", BOARD to "Board", LIST to "List", GALLERY to "Gallery", CALENDAR to "Calendar",
+    )
+}
+
+/** One saved way of looking at a database: layout plus filters, sorts, grouping and date column. */
+data class ViewConfig(
+    val id: String,
+    val name: String,
+    val layout: String,
+    val filters: List<Filter>,
+    val sorts: List<Sort>,
+    val groupBy: String?,
+    val dateProp: String?,
+)
+
+object ViewJson {
+    fun fromEntity(e: ViewEntity) = ViewConfig(
+        id = e.id,
+        name = e.name,
+        layout = e.layout,
+        filters = runCatching {
+            val arr = JSONArray(e.filters)
+            List(arr.length()) { i ->
+                val o = arr.getJSONObject(i)
+                Filter(o.getString("p"), o.getString("o"), o.optString("v"))
+            }
+        }.getOrDefault(emptyList()),
+        sorts = runCatching {
+            val arr = JSONArray(e.sorts)
+            List(arr.length()) { i ->
+                val o = arr.getJSONObject(i)
+                Sort(o.getString("p"), o.optBoolean("a", true))
+            }
+        }.getOrDefault(emptyList()),
+        groupBy = e.groupBy,
+        dateProp = e.dateProp,
+    )
+
+    fun toEntity(c: ViewConfig, databaseId: String, sortKey: String): ViewEntity {
+        val filters = JSONArray()
+        c.filters.forEach { filters.put(JSONObject().put("p", it.propId).put("o", it.op).put("v", it.value)) }
+        val sorts = JSONArray()
+        c.sorts.forEach { sorts.put(JSONObject().put("p", it.propId).put("a", it.asc)) }
+        return ViewEntity(
+            id = c.id, databaseId = databaseId, name = c.name, layout = c.layout,
+            filters = filters.toString(), sorts = sorts.toString(),
+            groupBy = c.groupBy, dateProp = c.dateProp, visibleProps = "[]", sortKey = sortKey,
+        )
+    }
+}
+
+/** Adapts a row's JSON values to the interface the filter code reads. */
+class JsonValues(private val o: JSONObject) : CellValues {
+    override fun text(id: String): String = o.optString(id)
+    override fun number(id: String): Double? = if (o.has(id)) o.optDouble(id).takeUnless { it.isNaN() } else null
+    override fun bool(id: String): Boolean = o.optBoolean(id)
+    override fun ids(id: String): List<String> = DbJson.ids(o, id)
+}

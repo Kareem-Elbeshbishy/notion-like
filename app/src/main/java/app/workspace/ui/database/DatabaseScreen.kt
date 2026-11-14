@@ -59,8 +59,11 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import app.workspace.AppContainer
+import app.workspace.data.JsonValues
+import app.workspace.data.Layout
 import app.workspace.data.Prop
 import app.workspace.data.PropType
+import app.workspace.data.Query
 import app.workspace.ui.theme.AppTheme
 import app.workspace.ui.theme.Dim
 import app.workspace.ui.theme.Space
@@ -116,7 +119,7 @@ fun DatabaseScreen(container: AppContainer, pageId: String, onBack: () -> Unit, 
             )
             val data = ui
             if (data != null) {
-                TableView(
+                DatabaseBody(
                     data = data,
                     vm = vm,
                     onOpenRow = onOpenPage,
@@ -134,7 +137,58 @@ fun DatabaseScreen(container: AppContainer, pageId: String, onBack: () -> Unit, 
 }
 
 @Composable
-private fun TableView(data: DbUi, vm: DatabaseViewModel, onOpenRow: (String) -> Unit, onRowTrashed: (String) -> Unit) {
+private fun DatabaseBody(data: DbUi, vm: DatabaseViewModel, onOpenRow: (String) -> Unit, onRowTrashed: (String) -> Unit) {
+    val view = data.views.firstOrNull { it.id == vm.activeViewId } ?: data.views.firstOrNull()
+    var settingsOpen by remember { mutableStateOf(false) }
+    var addingView by remember { mutableStateOf(false) }
+
+    Column(Modifier.fillMaxSize()) {
+        ViewTabs(
+            views = data.views,
+            activeId = view?.id,
+            onSelect = { vm.activeViewId = it },
+            onOpenSettings = { settingsOpen = true },
+            onAdd = { addingView = true },
+        )
+        if (view != null) {
+            val shown = remember(data.rows, data.props, view.filters, view.sorts) {
+                Query.apply(data.rows, data.props, view.filters, view.sorts, { it.title }, { JsonValues(it.values) })
+            }
+            Box(Modifier.weight(1f).fillMaxWidth()) {
+                when (view.layout) {
+                    Layout.BOARD -> BoardView(data, view, shown, vm, onOpenRow, onRowTrashed)
+                    Layout.LIST -> ListView(data, shown, vm, onOpenRow, onRowTrashed)
+                    Layout.GALLERY -> GalleryView(data, shown, vm, onOpenRow, onRowTrashed)
+                    Layout.CALENDAR -> CalendarView(data, view, shown, vm, onOpenRow)
+                    else -> TableView(data, shown, vm, onOpenRow, onRowTrashed)
+                }
+            }
+        }
+    }
+
+    if (settingsOpen && view != null) {
+        ViewSettingsDialog(
+            view = view,
+            props = data.props,
+            canDelete = data.views.size > 1,
+            onSave = { vm.saveView(it) },
+            onDelete = { vm.deleteView(view) },
+            onDismiss = { settingsOpen = false },
+        )
+    }
+    if (addingView) {
+        AddViewDialog(onDismiss = { addingView = false }, onAdd = { name, layout -> vm.addView(name, layout) })
+    }
+}
+
+@Composable
+private fun TableView(
+    data: DbUi,
+    rows: List<RowUi>,
+    vm: DatabaseViewModel,
+    onOpenRow: (String) -> Unit,
+    onRowTrashed: (String) -> Unit,
+) {
     val c = AppTheme.colors
     val t = AppTheme.type
     var editing by remember { mutableStateOf<Pair<String, String>?>(null) } // row page id to property id
@@ -154,7 +208,7 @@ private fun TableView(data: DbUi, vm: DatabaseViewModel, onOpenRow: (String) -> 
             }
             HorizontalDivider(color = c.border)
             LazyColumn(Modifier.weight(1f)) {
-                items(data.rows, key = { it.pageId }) { row ->
+                items(rows, key = { it.pageId }) { row ->
                     Column {
                         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                             NameCell(row, onOpen = { onOpenRow(row.pageId) }, onTrash = {
@@ -180,7 +234,7 @@ private fun TableView(data: DbUi, vm: DatabaseViewModel, onOpenRow: (String) -> 
                 item(key = "new-row") {
                     Row(
                         Modifier.fillMaxWidth().heightIn(min = Dim.touchMin).clickable(role = Role.Button) {
-                            vm.addRow(onOpenRow)
+                            vm.addRow(onCreated = onOpenRow)
                         }.padding(horizontal = Space.s16),
                         verticalAlignment = Alignment.CenterVertically,
                     ) { Text("+ New row", style = t.small, color = c.textMuted) }
@@ -190,7 +244,7 @@ private fun TableView(data: DbUi, vm: DatabaseViewModel, onOpenRow: (String) -> 
     }
 
     editing?.let { (rowId, propId) ->
-        val row = data.rows.firstOrNull { it.pageId == rowId }
+        val row = rows.firstOrNull { it.pageId == rowId }
         val prop = data.props.firstOrNull { it.id == propId }
         if (row != null && prop != null) {
             CellEditor(

@@ -58,6 +58,7 @@ fun appType(family: FontFamily) = AppType(
 )
 
 val LocalAppColors = staticCompositionLocalOf { LightColors }
+val LocalIsDark = staticCompositionLocalOf { false }
 val LocalAppType = staticCompositionLocalOf { appType(FontFamily.Default) }
 
 object AppTheme {
@@ -78,7 +79,11 @@ fun WorkspaceTheme(
     else
         lightColorScheme(primary = c.accent, onPrimary = c.onAccent, background = c.bg, surface = c.surface,
             onBackground = c.text, onSurface = c.text, outline = c.borderInput, error = c.danger)
-    CompositionLocalProvider(LocalAppColors provides c, LocalAppType provides appType(fontFamily)) {
+    CompositionLocalProvider(
+        LocalAppColors provides c,
+        LocalAppType provides appType(fontFamily),
+        LocalIsDark provides darkTheme,
+    ) {
         MaterialTheme(colorScheme = scheme, content = content)
     }
 }
@@ -113,4 +118,4 @@ val TagColorsDark = mapOf(
 )
 
 @Composable
-fun tagColors(): Map<String, TagColor> = if (isSystemInDarkTheme()) TagColorsDark else TagColorsLight
+fun tagColors(): Map<String, TagColor> = if (LocalIsDark.current) TagColorsDark else TagColorsLight

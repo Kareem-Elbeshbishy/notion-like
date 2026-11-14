@@ -51,6 +51,9 @@ class WorkspaceRepo(private val db: AppDatabase, scope: CoroutineScope) {
         return result.await()
     }
 
+    /** Runs [op] in the write queue, after every earlier write and before any later one. */
+    suspend fun <T> exclusive(op: suspend () -> T): T = writeAndGet(op)
+
     fun observeRootPages(): Flow<List<PageEntity>> = pages.observeRoots()
 
     fun observeTrashed(): Flow<List<PageEntity>> = pages.observeTrashed()
@@ -182,7 +185,11 @@ class WorkspaceRepo(private val db: AppDatabase, scope: CoroutineScope) {
     }
 
     /** A new row: a page under the database page, with an empty text block and no values yet. */
-    suspend fun createRow(databasePageId: String, databaseId: String): String = writeAndGet {
+    suspend fun createRow(
+        databasePageId: String,
+        databaseId: String,
+        initial: Map<String, Any?> = emptyMap(),
+    ): String = writeAndGet {
         db.withTransaction {
             val now = System.currentTimeMillis()
             val id = UUID.randomUUID().toString()
@@ -194,11 +201,31 @@ class WorkspaceRepo(private val db: AppDatabase, scope: CoroutineScope) {
                 ),
             )
             blocks.upsert(newBlock(id, "text", "", FractionalKey.between(null, null), "{}"))
-            dbs.insertRow(RowEntity(id, databaseId, "{}"))
+            val values = JSONObject()
+            initial.forEach { (propertyId, value) -> if (value != null) values.put(propertyId, value) }
+            dbs.insertRow(RowEntity(id, databaseId, values.toString()))
             pages.touch(databasePageId, now)
             id
         }
     }
+
+    fun observeViews(dbId: String): Flow<List<ViewEntity>> = dbs.observeViews(dbId)
+
+    fun addView(databaseId: String, view: ViewConfig) = write {
+        db.withTransaction {
+            val key = FractionalKey.between(dbs.lastViewKey(databaseId), null)
+            dbs.insertView(ViewJson.toEntity(view, databaseId, key))
+        }
+    }
+
+    fun saveView(databaseId: String, view: ViewConfig) = write {
+        db.withTransaction {
+            val key = dbs.viewKey(view.id) ?: return@withTransaction
+            dbs.updateView(ViewJson.toEntity(view, databaseId, key))
+        }
+    }
+
+    fun deleteView(id: String) = write { dbs.deleteView(id) }
 
     fun addProperty(databaseId: String, property: Prop) = write {
         db.withTransaction {

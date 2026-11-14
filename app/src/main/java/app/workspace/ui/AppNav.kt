@@ -28,6 +28,7 @@ import app.workspace.ui.database.DatabaseScreen
 import app.workspace.ui.editor.EditorScreen
 import app.workspace.ui.home.HomeScreen
 import app.workspace.ui.search.SearchScreen
+import app.workspace.ui.settings.SettingsScreen
 import app.workspace.ui.trash.TrashScreen
 import app.workspace.ui.theme.AppTheme
 import app.workspace.ui.theme.Dim
@@ -82,7 +83,7 @@ fun AppNav(container: AppContainer) {
             )
         }
         composable(Routes.TRASH) { TrashScreen(container = container, onBack = { nav.popBackStack() }) }
-        composable(Routes.SETTINGS) { StubScreen("Settings", "Theme, fonts and backups arrive in a later step.") { nav.popBackStack() } }
+        composable(Routes.SETTINGS) { SettingsScreen(container = container, onBack = { nav.popBackStack() }) }
     }
 }
 
